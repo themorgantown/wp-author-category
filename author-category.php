@@ -292,20 +292,43 @@ if (!class_exists('author_category')) {
                             'hierarchical' => 1,
                             'hide_empty'   => 0,
                             'echo'         => 0,
-                            'name'         => 'author_cat[]'));
+                            'name'         => 'author_cats'));
             $saved = get_user_meta($user->ID, '_author_cat', true);
             foreach ((array)$saved as $c) {
                 $select = str_replace('value="'.$c.'"', 'value="'.$c.'" selected="selected"', $select);
             }
-            $select = str_replace('<select', '<select multiple="multiple"', $select); ?>
+            $select = str_replace('<select', '<select multiple="multiple" style="width: 400px; height: 400px; overflow-y: scroll;"', $select);
+            wp_add_inline_script('jquery', '
+                jQuery(document).ready(function($) {
+                    $("#category_filter").on("keyup", function() {
+                        var filter = $(this).val().toLowerCase();
+                        $("#author_cat select[multiple]:first option").filter(function() {
+                            $(this).toggle($(this).text().toLowerCase().indexOf(filter) > -1);
+                        });
+                    });
+
+                    $("#author_cat select[multiple]:first").resizable({
+                        handles: "s",
+                        minHeight: 100,
+                        maxHeight: 800
+                    });
+                });
+            ');
+            ?>
             <h3><?= __('Author Category', 'author_cat') ?></h3>
             <table class="form-table" role="presentation">
+                <tr id="category_filter_row">
+                    <th><label for="category_filter"><?= __('Filter Categories', $this->txtDomain) ?></label></th>
+                    <td>
+                        <input type="text" name="category_filter" id="category_filter" placeholder="<?= __('Type to filter...', $this->txtDomain) ?>" />
+                    </td>
+                </tr>
                 <tr id="author_cat">
                     <th><label for="author_cat"><?= __('Category', $this->txtDomain) ?></label></th>
                     <td>
                         <?= $select ?>
                         <p class="description">
-                            <?= __('select a category to limit an author to post just in that category (use Crtl to select more then one).', $this->txtDomain) ?>
+                            <?= __('Select a category to limit an author to post just in that category (use Ctrl to select more than one).', $this->txtDomain) ?>
                         </p>
                     </td>
                 </tr>
@@ -318,7 +341,7 @@ if (!class_exists('author_category')) {
                         </p>
                     </td>
                 </tr>
-            </table>
+            </table>            
             <?php
         }
 
