@@ -6,6 +6,10 @@ Description: Simple plugin to limit categories authors can post to.
 Version: 0.9.0
 Author: La France insoumise
 Author URI: https://github.com/lafranceinsoumise/
+Text Domain: author_cat
+Domain Path: /languages
+License: GPL-2.0-or-later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 */
 /*
         *   Copyright (C) 2012 - 2013 Ohad Raz <admin@bainternet.info> (http://en.bainternet.info)
@@ -27,9 +31,9 @@ Author URI: https://github.com/lafranceinsoumise/
 */
 
 /* Disallow direct access to the plugin file */
-defined('ABSPATH') || die('Sorry, but you cannot access this page directly.');
+defined( 'ABSPATH' ) || exit;
 
-if (!class_exists('author_category')) {
+if ( ! class_exists( 'author_category' ) ) {
     class author_category
     {
         /**
@@ -66,70 +70,80 @@ if (!class_exists('author_category')) {
 
         public function __construct()
         {
-            add_action('init', function () {
+            add_action( 'init', function () {
                 $this->user_cats = $this->get_user_cats();
-            });
+            } );
+
+            add_action( 'init', array( $this, 'load_translation' ) );
 
             // For site administrators
-            if (is_admin()) {
+            if ( is_admin() ) {
                 // add Author Categories section on users edit page
-                add_action('edit_user_profile', array($this, 'extra_user_profile_fields'));
-                add_action('edit_user_profile_update', array($this, 'save_extra_user_profile_fields'));
+                add_action( 'show_user_profile', array( $this, 'extra_user_profile_fields' ) );
+                add_action( 'edit_user_profile', array( $this, 'extra_user_profile_fields' ) );
+                add_action( 'personal_options_update', array( $this, 'save_extra_user_profile_fields' ) );
+                add_action( 'edit_user_profile_update', array( $this, 'save_extra_user_profile_fields' ) );
 
                 // our js removes unauthorized categories from Gutenber setting panels
-                add_action('enqueue_block_editor_assets', array($this, 'enqueue_js'));
+                add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_js' ) );
 
                 // remove Yoast seo primary category picker (fucks with our js)
-                add_filter('wpseo_primary_term_taxonomies', array($this, 'remove_yoast'));
+                add_filter( 'wpseo_primary_term_taxonomies', array( $this, 'remove_yoast' ) );
 
                 // remove unauthorized categories at save time
-                add_action("save_post_post", array($this, 'remove_unauthorized_categories'), 50, 2);
+                add_action( 'save_post_post', array( $this, 'remove_unauthorized_categories' ), 50, 2 );
 
                 //add metabox
-                add_action('quick_edit_show_taxonomy', array($this, 'remove_quick_edit'), 0, 2);
-                add_action('add_meta_boxes', array( $this, 'add_meta_box' ));
-                add_action('save_post_post', array($this, 'save_meta_box_categories'), 10, 2);
+                add_action( 'quick_edit_show_taxonomy', array( $this, 'remove_quick_edit' ), 0, 2 );
+                add_action( 'add_meta_boxes', array( $this, 'add_meta_box' ) );
+                add_action( 'save_post_post', array( $this, 'save_meta_box_categories' ), 10, 2 );
             }
 
             // Add property to rest api result for guntenberg to know which to hide
-            add_filter('rest_api_init', array($this, 'rest_api_add_author_category_field'));
+            add_action( 'rest_api_init', array( $this, 'rest_api_add_author_category_field' ) );
 
 
             //add_filter('pre_option_default_category', array($this, 'user_default_category_option'));
 
             //xmlrpc post insert hook and quickpress
-            add_filter('xmlrpc_wp_insert_post_data', array($this, 'xmlrpc_default_category'), 2);
+            add_filter( 'xmlrpc_wp_insert_post_data', array( $this, 'xmlrpc_default_category' ), 2 );
 
             //post by email add category
-            add_filter('publish_phone', array($this,'post_by_email_default_category'));
-
-            //translations
-            $this->load_translation();
+            add_action( 'publish_phone', array( $this, 'post_by_email_default_category' ) );
         }
 
         public function enqueue_js()
         {
-            if (empty($this->user_cats)) {
+            if ( empty( $this->user_cats ) ) {
                 return;
             }
 
             $manifest_path = plugin_dir_path(__FILE__) . '/js/dist/manifest.json';
-            if (!file_exists($manifest_path)) {
+            if ( ! file_exists( $manifest_path ) ) {
                 return;
             }
 
-            $manifest_content = file_get_contents($manifest_path);
-            $assets = json_decode($manifest_content, true);
-
-            if (!isset($assets['main.js'])) {
+            $manifest_content = file_get_contents( $manifest_path );
+            if ( false === $manifest_content ) {
                 return;
             }
+
+            $assets = json_decode( $manifest_content, true );
+
+            if ( ! is_array( $assets ) || ! isset( $assets['main.js'] ) ) {
+                return;
+            }
+
+            $script_relative_path = 'js/dist/' . $assets['main.js'];
+            $script_path          = plugin_dir_path( __FILE__ ) . $script_relative_path;
+            $script_version       = file_exists( $script_path ) ? (string) filemtime( $script_path ) : null;
 
             wp_enqueue_script(
                 'author-category',
-                plugins_url('js/dist/' . $assets["main.js"], __FILE__),
-                array('wp-edit-post', 'wp-editor', 'wp-compose', 'wp-api-fetch', 'wp-url', 'wp-hooks', 'wp-components', 'wp-element'),
-                null
+                plugins_url( $script_relative_path, __FILE__ ),
+                array( 'wp-edit-post', 'wp-editor', 'wp-compose', 'wp-api-fetch', 'wp-url', 'wp-hooks', 'wp-components', 'wp-element' ),
+                $script_version,
+                true
             );
         }
 
@@ -141,7 +155,7 @@ if (!class_exists('author_category')) {
          */
         public function remove_yoast($all_taxonomies)
         {
-            if (empty($this->user_cats)) {
+            if ( empty( $this->user_cats ) ) {
                 return $all_taxonomies;
             }
 
@@ -194,24 +208,24 @@ if (!class_exists('author_category')) {
          */
         public function rest_api_add_author_category_field()
         {
-            if (empty($this->user_cats)) {
+            if ( empty( $this->user_cats ) ) {
                 return;
             }
 
-            register_rest_field('category', 'author_category', array(
-                'get_callback' => function ($term) {
+            register_rest_field( 'category', 'author_category', array(
+                'get_callback' => function ( $term ) {
                     // Only expose to authenticated users who can edit posts
-                    if (!current_user_can('edit_posts')) {
+                    if ( ! current_user_can( 'edit_posts' ) ) {
                         return false;
                     }
-                    return in_array($term["id"], $this->get_user_cats());
+                    return in_array( (int) $term['id'], $this->get_user_cats(), true );
                 },
                 'schema' => array(
-                    'description' => 'Is category authorized for author.',
+                    'description' => __( 'Whether the category is authorized for the current author.', $this->txtDomain ),
                     'type'        => 'boolean',
-                    'context'     => array('view', 'edit')
+                    'context'     => array( 'view', 'edit' ),
                 ),
-            ));
+            ) );
         }
 
         /**
@@ -272,7 +286,7 @@ if (!class_exists('author_category')) {
          */
         public function remove_quick_edit($show, $taxonomy_name)
         {
-            if ($taxonomy_name == 'category' && !empty($this->user_cats)) {
+            if ( 'category' === $taxonomy_name && ! empty( $this->user_cats ) ) {
                 return false;
             }
 
@@ -320,7 +334,7 @@ if (!class_exists('author_category')) {
                 return;
             }
 
-            if (!isset($_POST['author_cat_noncename']) || !wp_verify_nonce($_POST['author_cat_noncename'], plugin_basename(__FILE__))) {
+            if (!isset($_POST['author_cat_noncename']) || !wp_verify_nonce(wp_unslash($_POST['author_cat_noncename']), plugin_basename(__FILE__))) {
                 return;
             }
 
@@ -340,7 +354,7 @@ if (!class_exists('author_category')) {
 
             // Only set categories if submitted via metabox
             if (isset($_POST['post_category']) && is_array($_POST['post_category'])) {
-                $submitted_cats = array_map('intval', $_POST['post_category']);
+                $submitted_cats = array_map('intval', wp_unslash($_POST['post_category']));
                 // Only allow authorized categories
                 $authorized_cats = array_intersect($submitted_cats, $this->user_cats);
                 wp_set_post_categories($post_id, $authorized_cats, false);
@@ -353,6 +367,12 @@ if (!class_exists('author_category')) {
         public function render_meta_box_content()
         {
             $cats = $this->get_user_cats();
+            $selected_cats = array();
+
+            $post_id = get_the_ID();
+            if ( $post_id ) {
+                $selected_cats = array_map( 'intval', wp_get_post_categories( $post_id ) );
+            }
 
             wp_nonce_field(plugin_basename(__FILE__), 'author_cat_noncename');
 
@@ -361,21 +381,27 @@ if (!class_exists('author_category')) {
                 if (!$c) {
                     return;
                 }
-                echo __('This will be posted in: <strong>', $this->txtDomain) . esc_html($c->name)
-                    . __('</strong> Category', $this->txtDomain);
+                printf(
+                    '<p>%1$s <strong>%2$s</strong> %3$s</p>',
+                    esc_html__( 'This will be posted in:', $this->txtDomain ),
+                    esc_html( $c->name ),
+                    esc_html__( 'category.', $this->txtDomain )
+                );
                 echo '<input name="post_category[]" type="hidden" value="' . esc_attr($c->term_id) . '">';
             } else {
                 echo '<span>' . esc_html__('Make sure you select only the categories you want:', $this->txtDomain) . '</span><br />';
-                $options = get_option('author_cat_option');
-                $checked = (!isset($options['check_multi'])) ? ' checked="checked"' : '';
 
                 foreach ($cats as $cat) {
                     $c = get_category($cat);
                     if (!$c) {
                         continue;
                     }
-                    echo '<label><input name="post_category[]" type="checkbox"' . $checked . ' value="' . esc_attr($c->term_id) . '">'
-                        . esc_html($c->name) . '</label><br />';
+                    printf(
+                        '<label><input name="post_category[]" type="checkbox" value="%1$s" %2$s> %3$s</label><br />',
+                        esc_attr( $c->term_id ),
+                        checked( in_array( (int) $c->term_id, $selected_cats, true ), true, false ),
+                        esc_html( $c->name )
+                    );
                 }
             }
         }
@@ -388,7 +414,7 @@ if (!class_exists('author_category')) {
             // only admin can see and save the categories
             if (!current_user_can('manage_options')) {
                 return;
-            };
+            }
 
             $select = wp_dropdown_categories(array(
                             'orderby'      => 'name',
@@ -402,23 +428,23 @@ if (!class_exists('author_category')) {
                 $select = str_replace('value="'.$c.'"', 'value="'.$c.'" selected="selected"', $select);
             }
             $select = str_replace('<select', '<select multiple="multiple"', $select); ?>
-            <h3><?= __('Author Category', 'author_cat') ?></h3>
+            <h3><?php echo esc_html__( 'Author Category', $this->txtDomain ); ?></h3>
             <table class="form-table" role="presentation">
                 <tr id="author_cat">
-                    <th><label for="author_cat"><?= __('Category', $this->txtDomain) ?></label></th>
+                    <th><label for="author_cat"><?php echo esc_html__( 'Category', $this->txtDomain ); ?></label></th>
                     <td>
-                        <?= $select ?>
+                        <?php echo $select; ?>
                         <p class="description">
-                            <?= __('select a category to limit an author to post just in that category (use Crtl to select more then one).', $this->txtDomain) ?>
+                            <?php echo esc_html__( 'Select one or more categories to limit an author to those categories only. Use Ctrl or Cmd to select more than one.', $this->txtDomain ); ?>
                         </p>
                     </td>
                 </tr>
                 <tr id="author_cat_clear">
-                    <th><label for="author_cat_clear"><?= __('Clear Category', $this->txtDomain) ?></label></th>
+                    <th><label for="author_cat_clear"><?php echo esc_html__( 'Clear Category', $this->txtDomain ); ?></label></th>
                     <td>
                         <p class="description">
                             <input type="checkbox" name="author_cat_clear" id="author_cat_clear" value="1" />
-                            <?= __('Check if you want to clear the limitation for this user.', $this->txtDomain) ?>
+                            <?php echo esc_html__( 'Check this to remove category restrictions for this user.', $this->txtDomain ); ?>
                         </p>
                     </td>
                 </tr>
@@ -436,7 +462,7 @@ if (!class_exists('author_category')) {
         public function save_extra_user_profile_fields($user_id)
         {
             //only admin can see and save the categories
-            if (!current_user_can('manage_options')) {
+            if (!current_user_can('manage_options') || !current_user_can('edit_user', $user_id)) {
                 return false;
             }
 
@@ -446,7 +472,7 @@ if (!class_exists('author_category')) {
                 return true;
             }
 
-            $author_cat = array_map('intval', $_POST['author_cat']);
+            $author_cat = array_map('intval', wp_unslash($_POST['author_cat']));
 
             // Validate all categories exist
             foreach ($author_cat as $cat) {
@@ -455,7 +481,7 @@ if (!class_exists('author_category')) {
                 }
             }
 
-            if (isset($_POST['author_cat_clear']) && $_POST['author_cat_clear'] == 1) {
+            if (isset($_POST['author_cat_clear']) && '1' === wp_unslash($_POST['author_cat_clear'])) {
                 delete_user_meta($user_id, '_author_cat');
             } else {
                 update_user_meta($user_id, '_author_cat', $author_cat);
@@ -474,4 +500,4 @@ if (!class_exists('author_category')) {
     }
 }
 
-$ac = new author_category();
+new author_category();
