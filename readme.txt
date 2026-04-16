@@ -1,27 +1,27 @@
 === Author Category ===
-Contributors: jllro, bainternet
+Contributors: jllro, bainternet, themorgantown
 Tags: author category, limit author to category, author posts to category
 Requires at least: 5.0
-Tested up to: 5.4
-Stable tag: 0.8
+Tested up to: 6.8
+Stable tag: 0.9.0
 
-Simple lightweight plugin limit authors to post just in one category. Compatible with Gutenberg.
+Simple lightweight plugin to limit authors to post in specific categories only. Compatible with Gutenberg.
 
 == Description ==
 
-This Plugin allows you to select specific category per user and all of that users posts will be posted in that category only.
+This plugin allows you to select specific categories per user. All of that user's posts will be posted in those categories only.
 
 
 **Main Features:**
 
-*   Only admin can set authorized categories for each users.
-*   Only users with a specified category will be limited to that category, other will still have full control.
+*   Only admins can set authorized categories for each user.
+*   Only users with specified categories will be limited; others retain full control.
 *   Removes unauthorized categories for selected users.
 *   Removes categories from quick edit for selected users.
 *   Option to clear selection.
 *   Multiple categories per user.
 
-French traslation (since 0.8) thanks to jyd44
+French translation (since 0.8) thanks to jyd44
 
 == Frequently Asked Questions ==
 
@@ -30,6 +30,27 @@ French traslation (since 0.8) thanks to jyd44
 Simply login as the admin user and under each user profile, select the category for that user.
 
 == Changelog ==
+ = 0.9.0 =
+ Finalized the security hardening pass for post category restrictions.
+ Restored real nonce verification for the custom metabox save flow.
+ Fixed category updates to replace unauthorized categories instead of appending to them.
+ Hardened category loading to avoid non-array warnings on newer PHP versions.
+ Improved Yoast SEO compatibility by preserving non-category taxonomies regardless of callback payload shape.
+ Synchronized plugin version metadata with the published readme.
+
+ = 0.8.1 =
+ Fixed critical bug where unauthorized categories were never removed from saved posts.
+ Added missing JavaScript dependencies (wp-hooks, wp-components, wp-element).
+ Added security checks to prevent unauthorized category manipulation.
+ Fixed Yoast SEO filter to only affect category taxonomy, not all taxonomies.
+ Added nonce verification and proper sanitization to metabox save handler.
+ Added autosave and revision skip logic to category removal.
+ Fixed XML-RPC handler to support multiple key structures.
+ Prevented infinite loop in post-by-email category handler.
+ Added error handling for missing manifest.json file.
+ Modernized deprecated PHP patterns.
+ Removed unused Composer dependencies.
+
  = 0.8 = 
 Added POT file for translations.
 Added french translation.

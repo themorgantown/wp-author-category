@@ -3,7 +3,7 @@
 Plugin Name: Author Category (LFI version)
 Plugin URI: https://github.com/lafranceinsoumise/wp-author-category
 Description: Simple plugin to limit categories authors can post to.
-Version: 0.8.1
+Version: 0.9.0
 Author: La France insoumise
 Author URI: https://github.com/lafranceinsoumise/
 */
@@ -51,14 +51,13 @@ if (!class_exists('author_category')) {
         public function get_user_cats($user_id = null)
         {
             if ($user_id === null) {
-                global $current_user;
-                wp_get_current_user();
+                $current_user = wp_get_current_user();
                 $user_id = $current_user->ID;
             }
 
             $cats = get_user_meta($user_id, '_author_cat', true);
 
-            if (empty($cats) || count($cats) <= 0 || !is_array($cats)) {
+            if (!is_array($cats) || empty($cats)) {
                 return array();
             } else {
                 return $cats;
@@ -89,6 +88,7 @@ if (!class_exists('author_category')) {
                 //add metabox
                 add_action('quick_edit_show_taxonomy', array($this, 'remove_quick_edit'), 0, 2);
                 add_action('add_meta_boxes', array( $this, 'add_meta_box' ));
+                add_action('save_post_post', array($this, 'save_meta_box_categories'), 10, 2);
             }
 
             // Add property to rest api result for guntenberg to know which to hide
@@ -113,20 +113,30 @@ if (!class_exists('author_category')) {
                 return;
             }
 
-            $assets = json_decode(file_get_contents(plugin_dir_path(__FILE__). '/js/dist/manifest.json'), true);
+            $manifest_path = plugin_dir_path(__FILE__) . '/js/dist/manifest.json';
+            if (!file_exists($manifest_path)) {
+                return;
+            }
+
+            $manifest_content = file_get_contents($manifest_path);
+            $assets = json_decode($manifest_content, true);
+
+            if (!isset($assets['main.js'])) {
+                return;
+            }
 
             wp_enqueue_script(
                 'author-category',
                 plugins_url('js/dist/' . $assets["main.js"], __FILE__),
-                array('wp-edit-post', 'wp-editor', 'wp-compose', 'wp-api-fetch', 'wp-url'),
+                array('wp-edit-post', 'wp-editor', 'wp-compose', 'wp-api-fetch', 'wp-url', 'wp-hooks', 'wp-components', 'wp-element'),
                 null
             );
         }
 
         /**
-         * remove Yoast primary taxonomy picker when we put or js
+         * remove Yoast primary taxonomy picker for category only
          *
-         * @param $all_taxonomies
+         * @param array $all_taxonomies
          * @return array
          */
         public function remove_yoast($all_taxonomies)
@@ -135,16 +145,38 @@ if (!class_exists('author_category')) {
                 return $all_taxonomies;
             }
 
-            return array();
+            // Only remove the category taxonomy, preserve others
+            return array_filter($all_taxonomies, function ($taxonomy) {
+                if (is_string($taxonomy)) {
+                    return $taxonomy !== 'category';
+                }
+
+                return !isset($taxonomy->taxonomy) || $taxonomy->taxonomy !== 'category';
+            });
         }
 
         /**
          * remove unauthorized categories after saving
          *
-         * @param $post_id
+         * @param int   $post_id
+         * @param object $post
          */
-        public function remove_unauthorized_categories($post_id)
+        public function remove_unauthorized_categories($post_id, $post)
         {
+            // Skip autosaves, revisions, and non-post types
+            if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+                return;
+            }
+
+            if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
+                return;
+            }
+
+            // Only process if the current user is the post author
+            if (get_current_user_id() !== (int) $post->post_author) {
+                return;
+            }
+
             if (empty($this->user_cats)) {
                 return;
             }
@@ -152,13 +184,13 @@ if (!class_exists('author_category')) {
             $unfiltered_cats = wp_get_post_categories($post_id);
             $authorized_cats = array_intersect($unfiltered_cats, $this->get_user_cats());
 
-            if (empty(array_diff($unfiltered_cats, $authorized_cats))) {
-                wp_set_post_categories($authorized_cats);
+            if (!empty(array_diff($unfiltered_cats, $authorized_cats))) {
+                wp_set_post_categories($post_id, $authorized_cats, false);
             }
         }
 
         /**
-         * Adds a author_category field on rest api to be used by Guntenberg
+         * Adds a author_category field on rest api to be used by Gutenberg
          */
         public function rest_api_add_author_category_field()
         {
@@ -168,29 +200,41 @@ if (!class_exists('author_category')) {
 
             register_rest_field('category', 'author_category', array(
                 'get_callback' => function ($term) {
+                    // Only expose to authenticated users who can edit posts
+                    if (!current_user_can('edit_posts')) {
+                        return false;
+                    }
                     return in_array($term["id"], $this->get_user_cats());
                 },
                 'schema' => array(
                     'description' => 'Is category authorized for author.',
                     'type'        => 'boolean',
-                    'context'     =>  array('view')
+                    'context'     => array('view', 'edit')
                 ),
             ));
         }
 
         /**
-         * user_default_category
+         * xmlrpc_default_category
          *
          * function to handle XMLRPC calls
          *
-         * @param  array $post_data  post data
-         * @param  array $con_stactu xmlrpc post data
+         * @param  array $post_data   post data
+         * @param  array $content_struct xmlrpc post data
          * @return array
          */
-        public function xmlrpc_default_category($post_data, $con_stactu)
+        public function xmlrpc_default_category($post_data, $content_struct)
         {
             if (!empty($this->user_cats)) {
-                $post_data['tax_input']['category'] = $this->user_cats;
+                // XML-RPC uses different key structures depending on the client
+                if (isset($post_data['tax_input']['category'])) {
+                    // Merge with existing tax_input, keeping only authorized cats
+                    $post_data['tax_input']['category'] = $this->user_cats;
+                } elseif (isset($post_data['post_category'])) {
+                    $post_data['post_category'] = $this->user_cats;
+                } else {
+                    $post_data['post_category'] = $this->user_cats;
+                }
             }
 
             return $post_data;
@@ -204,10 +248,20 @@ if (!class_exists('author_category')) {
         public function post_by_email_default_category($post_id)
         {
             if (!empty($this->user_cats)) {
-                $email_post = array();
-                $email_post['ID'] = $post_id;
-                $email_post['post_category'] = $this->user_cats;
+                // Verify the post belongs to the current user
+                $post = get_post($post_id);
+                if (!$post || get_current_user_id() !== (int) $post->post_author) {
+                    return;
+                }
+
+                $email_post = array(
+                    'ID'            => $post_id,
+                    'post_category' => $this->user_cats,
+                );
+                // Prevent infinite loop by removing this filter temporarily
+                remove_filter('publish_phone', array($this, 'post_by_email_default_category'));
                 wp_update_post($email_post);
+                add_filter('publish_phone', array($this, 'post_by_email_default_category'));
             }
         }
 
@@ -250,28 +304,78 @@ if (!class_exists('author_category')) {
 
 
         /**
+         * Save metabox categories with nonce verification
+         *
+         * @param int    $post_id
+         * @param object $post
+         */
+        public function save_meta_box_categories($post_id, $post)
+        {
+            // Skip autosaves and revisions
+            if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+                return;
+            }
+
+            if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
+                return;
+            }
+
+            if (!isset($_POST['author_cat_noncename']) || !wp_verify_nonce($_POST['author_cat_noncename'], plugin_basename(__FILE__))) {
+                return;
+            }
+
+            if (!current_user_can('edit_post', $post_id)) {
+                return;
+            }
+
+            // Verify the post belongs to the current user
+            if (get_current_user_id() !== (int) $post->post_author) {
+                return;
+            }
+
+            // Check user has authorized categories
+            if (empty($this->user_cats)) {
+                return;
+            }
+
+            // Only set categories if submitted via metabox
+            if (isset($_POST['post_category']) && is_array($_POST['post_category'])) {
+                $submitted_cats = array_map('intval', $_POST['post_category']);
+                // Only allow authorized categories
+                $authorized_cats = array_intersect($submitted_cats, $this->user_cats);
+                wp_set_post_categories($post_id, $authorized_cats, false);
+            }
+        }
+
+        /**
          * Render Meta Box content
          */
         public function render_meta_box_content()
         {
             $cats = $this->get_user_cats();
-            // Use nonce for verification
+
             wp_nonce_field(plugin_basename(__FILE__), 'author_cat_noncename');
 
             if (count($cats) == 1) {
                 $c = get_category($cats[0]);
-                echo __('this will be posted in: <strong>', $this->txtDomain) . esc_html($c->name)
-                    .__('</strong> Category', $this->txtDomain);
-                echo '<input name="post_category[]" type="hidden" value="'.$c->term_id.'">';
+                if (!$c) {
+                    return;
+                }
+                echo __('This will be posted in: <strong>', $this->txtDomain) . esc_html($c->name)
+                    . __('</strong> Category', $this->txtDomain);
+                echo '<input name="post_category[]" type="hidden" value="' . esc_attr($c->term_id) . '">';
             } else {
-                echo '<span>'.__('Make sure you select only the categories you want: <strong>', $this->txtDomain).'</span><br />';
+                echo '<span>' . esc_html__('Make sure you select only the categories you want:', $this->txtDomain) . '</span><br />';
                 $options = get_option('author_cat_option');
-                $checked =  (!isset($options['check_multi']))? ' checked="checked"' : '';
+                $checked = (!isset($options['check_multi'])) ? ' checked="checked"' : '';
 
                 foreach ($cats as $cat) {
                     $c = get_category($cat);
-                    echo '<label><input name="post_category[]" type="checkbox"'.$checked.' value="'.$c->term_id.'">'
-                        .esc_html($c->name).'</label><br />';
+                    if (!$c) {
+                        continue;
+                    }
+                    echo '<label><input name="post_category[]" type="checkbox"' . $checked . ' value="' . esc_attr($c->term_id) . '">'
+                        . esc_html($c->name) . '</label><br />';
                 }
             }
         }
@@ -336,22 +440,25 @@ if (!class_exists('author_category')) {
                 return false;
             }
 
-            $author_cat = sanitize_meta('_author_cat', $_POST['author_cat'], 'user');
-
-            if (!is_array($author_cat)) {
-                return false;
+            if (!isset($_POST['author_cat']) || !is_array($_POST['author_cat'])) {
+                // No categories submitted - clear the limitation
+                delete_user_meta($user_id, '_author_cat');
+                return true;
             }
 
+            $author_cat = array_map('intval', $_POST['author_cat']);
+
+            // Validate all categories exist
             foreach ($author_cat as $cat) {
-                if (!is_numeric($cat) || !term_exists((int) $cat, 'category')) {
+                if (!term_exists($cat, 'category')) {
                     return false;
                 }
             }
 
-            update_user_meta($user_id, '_author_cat', $author_cat);
-                                                                                
             if (isset($_POST['author_cat_clear']) && $_POST['author_cat_clear'] == 1) {
                 delete_user_meta($user_id, '_author_cat');
+            } else {
+                update_user_meta($user_id, '_author_cat', $author_cat);
             }
 
             return true;
