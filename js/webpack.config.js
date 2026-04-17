@@ -1,6 +1,5 @@
 const path = require('path');
 const { WebpackManifestPlugin } = require('webpack-manifest-plugin');
-const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 
 module.exports = {
   module: {
@@ -17,9 +16,9 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: '[name]-[contenthash].js',
+    clean: true,
   },
   plugins: [
-    new CleanWebpackPlugin(),
     new WebpackManifestPlugin()
   ]
 };

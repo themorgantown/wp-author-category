@@ -88,7 +88,9 @@ if ( ! class_exists( 'author_category' ) ) {
                 add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_js' ) );
 
                 // remove Yoast seo primary category picker (fucks with our js)
-                add_filter( 'wpseo_primary_term_taxonomies', array( $this, 'remove_yoast' ) );
+                if ( function_exists( 'wpseo_primary_term_taxonomies' ) ) {
+                    add_filter( 'wpseo_primary_term_taxonomies', array( $this, 'remove_yoast' ) );
+                }
 
                 // remove unauthorized categories at save time
                 add_action( 'save_post_post', array( $this, 'remove_unauthorized_categories' ), 50, 2 );
@@ -155,18 +157,19 @@ if ( ! class_exists( 'author_category' ) ) {
          */
         public function remove_yoast($all_taxonomies)
         {
-            if ( empty( $this->user_cats ) ) {
+            // Defensive: wpseo_primary_term_taxonomies may change or be removed
+            if ( ! function_exists( 'wpseo_primary_term_taxonomies' ) || empty( $this->user_cats ) ) {
                 return $all_taxonomies;
             }
 
             // Only remove the category taxonomy, preserve others
-            return array_filter($all_taxonomies, function ($taxonomy) {
-                if (is_string($taxonomy)) {
+            return array_filter( $all_taxonomies, function ( $taxonomy ) {
+                if ( is_string( $taxonomy ) ) {
                     return $taxonomy !== 'category';
                 }
 
-                return !isset($taxonomy->taxonomy) || $taxonomy->taxonomy !== 'category';
-            });
+                return ! isset( $taxonomy->taxonomy ) || $taxonomy->taxonomy !== 'category';
+            } );
         }
 
         /**

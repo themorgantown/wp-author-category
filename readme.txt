@@ -36,6 +36,9 @@ Simply login as the admin user and under each user profile, select the category 
  Fixed category updates to replace unauthorized categories instead of appending to them.
  Hardened category loading to avoid non-array warnings on newer PHP versions.
  Improved Yoast SEO compatibility by preserving non-category taxonomies regardless of callback payload shape.
+ Added function-existence guard for Yoast SEO filter so the plugin no longer fails if Yoast is absent or updated.
+ Added proper uninstall handler to clean up all plugin options and user meta on deletion.
+ Rebuilt JavaScript assets with updated non-vulnerable dependencies (lodash 4.18.1, webpack 5.106.2).
  Synchronized plugin version metadata with the published readme.
 
  = 0.8.1 =
